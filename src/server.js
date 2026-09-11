@@ -98,7 +98,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// --- ROTAS DO CRUD DE PRODUTOS (ISSUE #7 - ROTAS PROTEGIDAS, ISSUE #8 - CADASTRO, ISSUE #9 - LISTAGEM) ---
+// --- ROTAS DO CRUD DE PRODUTOS (ISSUE #7 - ROTAS PROTEGIDAS, ISSUE #8 - CADASTRO, ISSUE #9 - LISTAGEM, ISSUE #10 - EDIÇÃO) ---
 
 /**
  * POST /produtos - Criar novo produto (PROTEGIDO - ISSUE #8)
@@ -225,8 +225,21 @@ app.get('/produtos/:id', async (req, res) => {
 });
 
 /**
- * PUT /produtos/:id - Atualizar produto (PROTEGIDO - ISSUE #7)
+ * PUT /produtos/:id - Atualizar produto (PROTEGIDO - ISSUE #10)
  * Requer autenticação via token JWT
+ * 
+ * Params:
+ * - id: número do produto (obrigatório)
+ * 
+ * Body (campos opcionais):
+ * {
+ *   "nome": "string",
+ *   "descricao": "string",
+ *   "preco": number,
+ *   "quantidade_estoque": number
+ * }
+ * 
+ * Nota: É possível atualizar apenas alguns campos, mantendo os outros inalterados
  */
 app.put('/produtos/:id', autenticar, async (req, res) => {
   const { id } = req.params;
@@ -237,19 +250,56 @@ app.put('/produtos/:id', autenticar, async (req, res) => {
     return res.status(400).json({ error: 'ID deve ser um número válido e positivo.' });
   }
 
+  // Verifica se pelo menos um campo foi fornecido para atualização
+  if (nome === undefined && descricao === undefined && preco === undefined && quantidade_estoque === undefined) {
+    return res.status(400).json({ 
+      error: 'Nenhum campo foi fornecido para atualização.',
+      campos_atualizaveis: ['nome', 'descricao', 'preco', 'quantidade_estoque']
+    });
+  }
+
+  // Validação do preço se foi fornecido
+  if (preco !== undefined && (typeof preco !== 'number' || preco < 0)) {
+    return res.status(400).json({ error: 'Preço deve ser um número válido e positivo.' });
+  }
+
+  // Validação da quantidade de estoque se foi fornecido
+  if (quantidade_estoque !== undefined && (typeof quantidade_estoque !== 'number' || quantidade_estoque < 0)) {
+    return res.status(400).json({ error: 'Quantidade de estoque deve ser um número válido e positivo.' });
+  }
+
   try {
+    // Busca o produto atual para manter os campos não alterados
+    const produtoAtual = await pool.query('SELECT * FROM produtos WHERE id = $1', [id]);
+    
+    if (produtoAtual.rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'Produto não encontrado para atualização.',
+        id: parseInt(id)
+      });
+    }
+
+    // Usa os valores fornecidos ou mantém os valores atuais
+    const nomeAtualizado = nome !== undefined ? nome : produtoAtual.rows[0].nome;
+    const descricaoAtualizada = descricao !== undefined ? descricao : produtoAtual.rows[0].descricao;
+    const precoAtualizado = preco !== undefined ? preco : produtoAtual.rows[0].preco;
+    const quantidadeAtualizada = quantidade_estoque !== undefined ? quantidade_estoque : produtoAtual.rows[0].quantidade_estoque;
+
+    // Atualiza o produto
     const result = await pool.query(
       'UPDATE produtos SET nome = $1, descricao = $2, preco = $3, quantidade_estoque = $4 WHERE id = $5 RETURNING *',
-      [nome, descricao, preco, quantidade_estoque, id]
+      [nomeAtualizado, descricaoAtualizada, precoAtualizado, quantidadeAtualizada, id]
     );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Produto não encontrado para atualização.' });
-    }
 
     res.json({
       message: 'Produto atualizado com sucesso!',
-      produto: result.rows[0]
+      produto: result.rows[0],
+      camposAtualizados: {
+        nome: nome !== undefined,
+        descricao: descricao !== undefined,
+        preco: preco !== undefined,
+        quantidade_estoque: quantidade_estoque !== undefined
+      }
     });
   } catch (error) {
     console.error('Erro ao atualizar produto:', error.message);

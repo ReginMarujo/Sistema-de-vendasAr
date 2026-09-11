@@ -98,7 +98,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// --- ROTAS DO CRUD DE PRODUTOS (ISSUE #7 - ROTAS PROTEGIDAS, ISSUE #8 - CADASTRO, ISSUE #9 - LISTAGEM, ISSUE #10 - EDIÇÃO) ---
+// --- ROTAS DO CRUD DE PRODUTOS (ISSUE #7 - ROTAS PROTEGIDAS, ISSUE #8 - CADASTRO, ISSUE #9 - LISTAGEM, ISSUE #10 - EDIÇÃO, ISSUE #11 - REMOÇÃO) ---
 
 /**
  * POST /produtos - Criar novo produto (PROTEGIDO - ISSUE #8)
@@ -308,8 +308,13 @@ app.put('/produtos/:id', autenticar, async (req, res) => {
 });
 
 /**
- * DELETE /produtos/:id - Deletar produto (PROTEGIDO - ISSUE #7)
+ * DELETE /produtos/:id - Deletar produto (PROTEGIDO - ISSUE #11)
  * Requer autenticação via token JWT
+ * 
+ * Params:
+ * - id: número do produto (obrigatório)
+ * 
+ * Nota: Esta operação é irreversível. O produto será permanentemente removido do banco de dados.
  */
 app.delete('/produtos/:id', autenticar, async (req, res) => {
   const { id } = req.params;
@@ -320,15 +325,36 @@ app.delete('/produtos/:id', autenticar, async (req, res) => {
   }
 
   try {
-    const result = await pool.query('DELETE FROM produtos WHERE id = $1 RETURNING *', [id]);
+    // Primeiro, busca o produto para retornar seus dados antes da exclusão
+    const produtoExistente = await pool.query('SELECT * FROM produtos WHERE id = $1', [id]);
     
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Produto não encontrado para remoção.' });
+    if (produtoExistente.rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'Produto não encontrado para remoção.',
+        id: parseInt(id)
+      });
     }
 
-    res.json({ 
-      message: 'Produto removido com sucesso.',
-      produto: result.rows[0] 
+    // Armazena os dados do produto que será deletado
+    const produtoRemovido = produtoExistente.rows[0];
+
+    // Delete o produto
+    await pool.query('DELETE FROM produtos WHERE id = $1', [id]);
+
+    // Log da operação
+    console.log(`[DELETE] Produto removido - ID: ${id}, Nome: ${produtoRemovido.nome}, Usuário: ${req.usuario.email}`);
+
+    res.status(200).json({ 
+      message: 'Produto removido com sucesso!',
+      produtoRemovido: {
+        id: produtoRemovido.id,
+        nome: produtoRemovido.nome,
+        descricao: produtoRemovido.descricao,
+        preco: produtoRemovido.preco,
+        quantidade_estoque: produtoRemovido.quantidade_estoque
+      },
+      removidoPor: req.usuario.email,
+      removidoEm: new Date().toISOString()
     });
   } catch (error) {
     console.error('Erro ao deletar produto:', error.message);

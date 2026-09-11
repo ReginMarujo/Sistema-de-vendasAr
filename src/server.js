@@ -9,6 +9,26 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secreto_super_seguro_dev';
 
 app.use(express.json());
 
+// --- MIDDLEWARE DE AUTENTICAÇÃO (ISSUE #7)git ---
+const autenticar = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Token não fornecido. Autenticação necessária.' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.usuario = decoded;
+    next();
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expirado. Realize login novamente.' });
+    }
+    return res.status(403).json({ error: 'Token inválido.' });
+  }
+};
+
 app.get('/', (req, res) => {
   res.json({ message: 'API do Sistema de Vendas rodando com sucesso!' });
 });
@@ -99,7 +119,8 @@ app.post('/login', async (req, res) => {
 
 // --- ROTAS DO CRUD DE PRODUTOS ---
 
-app.post('/produtos', async (req, res) => {
+// POST - Criar produto (PROTEGIDO)
+app.post('/produtos', autenticar, async (req, res) => {
   const { nome, descricao, preco, quantidade_estoque } = req.body;
   try {
     const result = await pool.query(
@@ -112,6 +133,7 @@ app.post('/produtos', async (req, res) => {
   }
 });
 
+// GET - Listar produtos (PÚBLICO)
 app.get('/produtos', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM produtos ORDER BY id ASC');
@@ -121,6 +143,7 @@ app.get('/produtos', async (req, res) => {
   }
 });
 
+// GET - Buscar produto por ID (PÚBLICO)
 app.get('/produtos/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -134,7 +157,8 @@ app.get('/produtos/:id', async (req, res) => {
   }
 });
 
-app.put('/produtos/:id', async (req, res) => {
+// PUT - Atualizar produto (PROTEGIDO)
+app.put('/produtos/:id', autenticar, async (req, res) => {
   const { id } = req.params;
   const { nome, descricao, preco, quantidade_estoque } = req.body;
   try {
@@ -151,7 +175,8 @@ app.put('/produtos/:id', async (req, res) => {
   }
 });
 
-app.delete('/produtos/:id', async (req, res) => {
+// DELETE - Deletar produto (PROTEGIDO)
+app.delete('/produtos/:id', autenticar, async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query('DELETE FROM produtos WHERE id = $1 RETURNING *', [id]);

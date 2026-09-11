@@ -1,9 +1,11 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const pool = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'secreto_super_seguro_dev';
 
 app.use(express.json());
 
@@ -21,7 +23,7 @@ app.get('/healthz', async (req, res) => {
   }
 });
 
-// --- ROTA DE CADASTRO DE USUÁRIO ---
+// --- ROTA DE CADASTRO DE USUÁRIO (ISSUE #6) ---
 app.post('/usuarios', async (req, res) => {
   const { nome, email, senha } = req.body;
 
@@ -30,13 +32,11 @@ app.post('/usuarios', async (req, res) => {
   }
 
   try {
-    // Verifica se o e-mail já está cadastrado
     const usuarioExistente = await pool.query('SELECT id FROM usuarios WHERE email = $1', [email]);
     if (usuarioExistente.rows.length > 0) {
       return res.status(400).json({ error: 'E-mail já cadastrado no sistema.' });
     }
 
-    // Criptografa a senha antes de salvar no banco
     const saltRounds = 10;
     const senhaHash = await bcrypt.hash(senha, saltRounds);
 
@@ -49,6 +49,51 @@ app.post('/usuarios', async (req, res) => {
   } catch (error) {
     console.error('Erro ao cadastrar usuário:', error.message);
     res.status(500).json({ error: 'Erro ao cadastrar usuário.', details: error.message });
+  }
+});
+
+// --- ROTA DE LOGIN E SESSÃO ---
+app.post('/login', async (req, res) => {
+  const { email, senha } = req.body;
+
+  if (!email || !senha) {
+    return res.status(400).json({ error: 'Email e senha são obrigatórios.' });
+  }
+
+  try {
+    // Busca o usuário no banco
+    const result = await pool.query('SELECT * FROM usuarios WHERE email = $1', [email]);
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Credenciais inválidas.' });
+    }
+
+    const usuario = result.rows[0];
+
+    // Valida a senha comparando com o hash do banco
+    const senhaValida = await bcrypt.compare(senha, usuario.senha);
+    if (!senhaValida) {
+      return res.status(401).json({ error: 'Credenciais inválidas.' });
+    }
+
+    // Gera o token JWT para autenticação da sessão (expira em 8h)
+    const token = jwt.sign(
+      { id: usuario.id, email: usuario.email },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
+    res.json({
+      message: 'Login realizado com sucesso!',
+      token,
+      usuario: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao realizar login:', error.message);
+    res.status(500).json({ error: 'Erro ao realizar login.', details: error.message });
   }
 });
 

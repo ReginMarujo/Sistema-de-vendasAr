@@ -1,4 +1,5 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const pool = require('./db');
 
 const app = express();
@@ -20,9 +21,39 @@ app.get('/healthz', async (req, res) => {
   }
 });
 
+// --- ROTA DE CADASTRO DE USUÁRIO ---
+app.post('/usuarios', async (req, res) => {
+  const { nome, email, senha } = req.body;
+
+  if (!nome || !email || !senha) {
+    return res.status(400).json({ error: 'Nome, email e senha são obrigatórios.' });
+  }
+
+  try {
+    // Verifica se o e-mail já está cadastrado
+    const usuarioExistente = await pool.query('SELECT id FROM usuarios WHERE email = $1', [email]);
+    if (usuarioExistente.rows.length > 0) {
+      return res.status(400).json({ error: 'E-mail já cadastrado no sistema.' });
+    }
+
+    // Criptografa a senha antes de salvar no banco
+    const saltRounds = 10;
+    const senhaHash = await bcrypt.hash(senha, saltRounds);
+
+    const result = await pool.query(
+      'INSERT INTO usuarios (nome, email, senha) VALUES ($1, $2, $3) RETURNING id, nome, email, criado_em',
+      [nome, email, senhaHash]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Erro ao cadastrar usuário:', error.message);
+    res.status(500).json({ error: 'Erro ao cadastrar usuário.', details: error.message });
+  }
+});
+
 // --- ROTAS DO CRUD DE PRODUTOS ---
 
-// 1. Criar Produto (POST)
 app.post('/produtos', async (req, res) => {
   const { nome, descricao, preco, quantidade_estoque } = req.body;
   try {
@@ -36,7 +67,6 @@ app.post('/produtos', async (req, res) => {
   }
 });
 
-// 2. Listar Todos os Produtos (GET)
 app.get('/produtos', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM produtos ORDER BY id ASC');
@@ -46,7 +76,6 @@ app.get('/produtos', async (req, res) => {
   }
 });
 
-// 3. Buscar Produto por ID (GET)
 app.get('/produtos/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -60,7 +89,6 @@ app.get('/produtos/:id', async (req, res) => {
   }
 });
 
-// 4. Atualizar Produto (PUT)
 app.put('/produtos/:id', async (req, res) => {
   const { id } = req.params;
   const { nome, descricao, preco, quantidade_estoque } = req.body;
@@ -78,7 +106,6 @@ app.put('/produtos/:id', async (req, res) => {
   }
 });
 
-// 5. Deletar Produto (DELETE)
 app.delete('/produtos/:id', async (req, res) => {
   const { id } = req.params;
   try {
